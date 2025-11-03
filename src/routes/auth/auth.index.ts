@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
-import { createBaseAPIRouter } from "@/lib/create-app";
+import { createRouter } from "@/lib/create-app";
 
-const router = createBaseAPIRouter()
+const router = createRouter()
   .get("/auth/doc", async (c) => {
     const openAPISchema = await auth.api.generateOpenAPISchema();
     const postRequest = openAPISchema.paths["/sign-up/email"]?.post;
@@ -49,8 +49,22 @@ const router = createBaseAPIRouter()
 
     return c.json(openAPISchema);
   })
-  .on(["POST", "GET", "PUT", "PATCH", "OPTIONS"], "/auth/*", (c) => {
-    return auth.handler(c.req.raw);
+  .on(["POST", "GET", "PUT", "PATCH", "OPTIONS"], "/auth/*", async (c) => {
+    try {
+      // Let Better Auth handle all auth routes, including its own error pages
+      const response = await auth.handler(c.req.raw);
+      return response;
+    } catch (error) {
+      // Only log errors, but let Better Auth handle error responses
+      // Better Auth has its own error page system that we shouldn't interfere with
+      console.error("Better Auth Handler Error:", error);
+      if (error instanceof Error) {
+        console.error("Error message:", error.message);
+        console.error("Error stack:", error.stack);
+      }
+      // Re-throw to let Better Auth's internal error handling work
+      throw error;
+    }
   });
 
 export default router;

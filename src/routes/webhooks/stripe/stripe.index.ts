@@ -10,6 +10,9 @@ import { Icon, Notification_Type } from "@/generated/prisma";
 import { updateProfileStatsOnVote } from "@/lib/profile-stats";
 import { stripe } from "@/lib/stripe";
 
+// Import email queue system
+import { publishEvent } from "../../../../email/queue/eventBus.js";
+
 const webhookSecret = env.STRIPE_WEBHOOK_SECRET!;
 
 const stripeWebhookRouter = new Hono();
@@ -70,6 +73,73 @@ stripeWebhookRouter.post("/api/v1/webhooks/stripe", async (c) => {
 
 export default stripeWebhookRouter;
 
+/**
+ * Handle vote credits purchase completion
+ */
+async function handleVoteCreditsPurchase(session: Stripe.Checkout.Session) {
+  if (!session.metadata) {
+    throw new Error("Missing metadata in checkout session");
+  }
+
+  const { paymentId, profileId, voteCount } = session.metadata;
+  const votes = Number.parseInt(voteCount || "0");
+
+  if (!paymentId || !profileId || !votes) {
+    throw new Error("Invalid metadata for vote credits purchase");
+  }
+
+  await db.$transaction(async (tx) => {
+    // Check if payment already processed
+    const existingPayment = await tx.payment.findUnique({
+      where: { id: paymentId },
+    });
+
+    if (!existingPayment) {
+      console.error("Payment not found:", paymentId);
+      return;
+    }
+
+    if (existingPayment.status === "COMPLETED" || existingPayment.status === "FAILED") {
+      console.log("Payment already processed:", paymentId);
+      return;
+    }
+
+    // Update payment status
+    await tx.payment.update({
+      where: { id: paymentId },
+      data: {
+        status: "COMPLETED",
+        stripeSessionId: session.id,
+      },
+    });
+
+    // Credit votes to voter's profile
+    await tx.profile.update({
+      where: { id: profileId },
+      data: {
+        availableVotes: {
+          increment: votes,
+        },
+      },
+    });
+  });
+
+  // Send notification to voter
+  try {
+    await db.notification.create({
+      data: {
+        profileId,
+        title: "Vote credits purchased!",
+        message: `Successfully purchased ${votes} vote credits. You can now vote for your favorite models!`,
+        type: Notification_Type.SYSTEM,
+        icon: Icon.SUCCESS,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to create notification:", error);
+  }
+}
+
 async function sessionCompleted(event: Stripe.Event) {
   const eventObject = event.data.object as Stripe.Checkout.Session;
 
@@ -77,6 +147,15 @@ async function sessionCompleted(event: Stripe.Event) {
     throw new Error("Missing metadata in checkout session");
   }
 
+  const paymentType = eventObject.metadata.type;
+
+  // Handle vote credits purchase (different from model-specific votes)
+  if (paymentType === "VOTE_CREDITS") {
+    await handleVoteCreditsPurchase(eventObject);
+    return;
+  }
+
+  // Handle traditional model vote purchase
   const metadata = PaymentMetadataSchema.parse({
     ...eventObject.metadata,
     voteCount: Number.parseInt(eventObject.metadata.voteCount || "1"),
@@ -86,10 +165,27 @@ async function sessionCompleted(event: Stripe.Event) {
   // Extract comment from custom fields if available
   const comment = eventObject.custom_fields?.find(field => field.key === "comment")?.text?.value || null;
 
-  await db.$transaction(async (tx) => {
-    const originalVoteCount = metadata.voteCount;
-    const totalVoteCount = originalVoteCount * metadata.votesMultipleBy;
+  // Check for multiplier token at webhook time (in case user activated it after payment)
+  const { getUserMultiplierToken } = await import("@/lib/vote-multiplier");
+  const multiplierToken = await getUserMultiplierToken(metadata.voterId);
+  let finalMultiplier = metadata.votesMultipleBy || 1;
+  
+  // If user has an active multiplier token, use it (10x takes precedence)
+  if (multiplierToken && !multiplierToken.isClaimed) {
+    finalMultiplier = multiplierToken.prizeValue || 10;
+    // Mark token as used
+    await db.activeSpinPrize.update({
+      where: { id: multiplierToken.id },
+      data: {
+        isActive: false, // Deactivate after use
+      },
+    });
+  }
 
+  const originalVoteCount = metadata.voteCount;
+  const totalVoteCount = originalVoteCount * finalMultiplier;
+
+  await db.$transaction(async (tx) => {
     const existingPayment = await tx.payment.findUnique({
       where: { id: metadata.paymentId },
     });
@@ -109,7 +205,7 @@ async function sessionCompleted(event: Stripe.Event) {
         intendedComment: comment,
       },
     });
-    // create vote
+    // create vote with multiplied count
     await tx.vote.create({
       data: {
         voteeId: metadata.voteeId,
@@ -124,13 +220,14 @@ async function sessionCompleted(event: Stripe.Event) {
   });
 
   // Update ProfileStats for the votee (outside transaction to avoid conflicts)
-  await updateProfileStatsOnVote(metadata.voteeId, "PAID", metadata.voteCount);
+  // Use totalVoteCount (multiplied) for accurate stats
+  await updateProfileStatsOnVote(metadata.voteeId, "PAID", totalVoteCount);
 
   // Notify the votee that they received paid votes
   try {
     const voter = await db.profile.findUnique({
       where: { id: metadata.voterId },
-      select: { user: { select: { name: true, username: true } } },
+      select: { user: { select: { name: true, username: true, email: true } } },
     });
 
     const voterName = voter?.user?.name ?? "Someone";
@@ -148,6 +245,22 @@ async function sessionCompleted(event: Stripe.Event) {
         action: voterUsername ? `/profile/${voterUsername}` : undefined,
       },
     });
+
+    // Send vote confirmation email for paid votes (async, non-blocking)
+    if (voter?.user?.email) {
+      const votee = await db.profile.findUnique({
+        where: { id: metadata.voteeId },
+        select: { user: { select: { name: true, username: true } } },
+      });
+
+      publishEvent.voteCreated({
+        voterEmail: voter.user.email,
+        modelName: votee?.user?.username ?? votee?.user?.name ?? "Model",
+        modelId: metadata.voteeId,
+      }).catch((err) => {
+        console.error("Failed to queue vote confirmation email:", err);
+      });
+    }
   } catch {}
 }
 

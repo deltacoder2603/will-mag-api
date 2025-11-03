@@ -654,9 +654,12 @@ export const getProfileStats: AppRouteHandler<GetProfileStatsRoute> = async (c) 
 
   const now = new Date();
 
-  // Get all contest participations for this profile
+  // Get all contest participations for this profile (only active participations)
   const participations = await db.contestParticipation.findMany({
-    where: { profileId: profile.id },
+    where: { 
+      profileId: profile.id,
+      isParticipating: true  // Only count active participations
+    },
     include: {
       contest: true,
     },

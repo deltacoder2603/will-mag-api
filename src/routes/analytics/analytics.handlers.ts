@@ -386,7 +386,7 @@ export const getContestAnalytics: AppRouteHandler<GetContestAnalyticsRoute> = as
 
 export const getVotesAnalytics: AppRouteHandler<GetVotesAnalyticsRoute> = async (c) => {
   // Get vote statistics in parallel for better performance
-  const [totalVotes, freeVotes, paidVotes, topVoters, topVoteRecipients] = await Promise.all([
+  const [totalVotes, freeVotes, paidVotes, topVotersRaw, topVoteRecipients] = await Promise.all([
     // Total votes count (sum of all vote counts)
     db.vote.aggregate({
       _sum: {
@@ -442,6 +442,9 @@ export const getVotesAnalytics: AppRouteHandler<GetVotesAnalyticsRoute> = async 
       take: 5,
     }),
   ]);
+
+  // Filter out any votes with null voterId
+  const topVoters = topVotersRaw.filter(voter => voter.voterId != null);
 
   // Get user details for top voters
   const topVotersWithDetails = await Promise.all(

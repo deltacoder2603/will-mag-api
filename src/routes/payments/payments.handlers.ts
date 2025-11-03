@@ -7,7 +7,7 @@ import { db } from "@/db/index";
 import { sendErrorResponse } from "@/helpers/send-error-response";
 import { calculatePaginationMetadata } from "@/lib/queries/query.helper";
 
-import type { GetAllPayments, GetPaymentAnalytics, GetPaymentHistory } from "./payments.routes";
+import type { GetAllPayments, GetPaymentAnalytics, GetPaymentHistory, PurchaseVoteCredits } from "./payments.routes";
 
 export const getPaymentHistory: AppRouteHandler<GetPaymentHistory> = async (c) => {
   const { page, limit } = c.req.valid("query");
@@ -219,13 +219,8 @@ export const getAllPayments: AppRouteHandler<GetAllPayments> = async (c) => {
             id: true,
             comment: true,
             count: true,
+            voterId: true,
             votee: {
-              select: {
-                id: true,
-                user: { select: { name: true, username: true, image: true } },
-              },
-            },
-            voter: {
               select: {
                 id: true,
                 user: { select: { name: true, username: true, image: true } },
@@ -327,4 +322,92 @@ export const getPaymentAnalytics: AppRouteHandler<GetPaymentAnalytics> = async (
   };
 
   return c.json(analytics, HttpStatusCodes.OK);
+};
+
+export const purchaseVoteCredits: AppRouteHandler<PurchaseVoteCredits> = async (c) => {
+  const { profileId, voteCount, successUrl, cancelUrl } = c.req.valid("json");
+
+  // Import Stripe and env at runtime
+  const stripe = (await import("@/lib/stripe")).stripe;
+  const env = (await import("@/env")).default;
+
+  // Validate voter profile exists
+  const profile = await db.profile.findUnique({
+    where: { id: profileId },
+    select: {
+      id: true,
+      user: {
+        select: {
+          email: true,
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (!profile) {
+    return sendErrorResponse(c, "notFound", "Profile not found");
+  }
+
+  // Calculate price based on vote count (pricing tiers)
+  const getPriceForVoteCount = (count: number): number => {
+    // Standard pricing: $1 = 5 votes ($0.20 per vote)
+    return count * 0.20;
+  };
+
+  const amount = getPriceForVoteCount(voteCount);
+
+  try {
+    // Create payment record first
+    const payment = await db.payment.create({
+      data: {
+        payerId: profileId,
+        amount,
+        status: "PENDING",
+        type: "VOTE_CREDITS",
+        intendedVoteCount: voteCount,
+        stripeSessionId: "pending", // Will be updated by webhook
+      },
+    });
+
+    // Create Stripe checkout session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `${voteCount} Vote Credits`,
+              description: `Purchase ${voteCount} vote credits to vote for your favorite models`,
+            },
+            unit_amount: Math.round(amount * 100), // Convert to cents
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      success_url: successUrl || `${env.FRONTEND_URL}/payments/success?callback=/voters`,
+      cancel_url: cancelUrl || `${env.FRONTEND_URL}/voters?section=buy-votes&payment=cancelled`,
+      customer_email: profile.user.email,
+      metadata: {
+        paymentId: payment.id,
+        profileId,
+        voteCount: voteCount.toString(),
+        type: "VOTE_CREDITS",
+      },
+    });
+
+    return c.json(
+      {
+        sessionId: session.id,
+        url: session.url!,
+        paymentId: payment.id,
+      },
+      HttpStatusCodes.OK,
+    );
+  } catch (error: any) {
+    console.error("Error creating Stripe checkout session:", error);
+    return sendErrorResponse(c, "serviceUnavailable", error.message || "Failed to create checkout session");
+  }
 };

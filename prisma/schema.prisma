@@ -79,6 +79,13 @@ model User {
   sessions  Session[]
   accounts  Account[]
 
+  // Referral system
+  referralCode  String? @unique @db.VarChar(50)
+  referredById  String?
+  referredBy    User?   @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals     User[]  @relation("Referrals")
+  referralCount Int     @default(0)
+
   @@unique([email])
   @@unique([username])
   @@fulltext([name])
@@ -123,9 +130,10 @@ model Profile {
 
   contestWon Contest[]
 
-  votesCast      Vote[]    @relation("VotesCast")
-  votesReceived  Vote[]    @relation("VotesReceived")
-  lastFreeVoteAt DateTime?
+  votesCast       Vote[]    @relation("VotesCast")
+  votesReceived   Vote[]    @relation("VotesReceived")
+  lastFreeVoteAt  DateTime?
+  availableVotes  Int       @default(0) // Pre-purchased votes available for voters to use
 
   // ONE cover image
   coverImageId String? @unique
@@ -146,6 +154,20 @@ model Profile {
   stats            ProfileStats?
   paymentsReceived Payment[]     @relation("PaymentIntendedVotee")
 
+  // Gamification features
+  milestones       Milestone[]
+  achievements     ProfileAchievement[]
+  unlockedContent  UnlockedContent[]
+
+  // Spinning wheel
+  spinHistory      SpinWheelHistory[]
+  activeSpinPrizes ActiveSpinPrize[]
+
+  // Favorites (as a voter)
+  favoriteModels   Favorite[] @relation("VoterFavorites")
+  // Favorited by (as a model)
+  favoritedBy      Favorite[] @relation("ModelFavorites")
+
   @@fulltext([bio])
   @@fulltext([hobbiesAndPassions])
   @@fulltext([paidVoterMessage])
@@ -153,6 +175,24 @@ model Profile {
   @@fulltext([city])
   @@fulltext([country])
   @@fulltext([bio, city, country, hobbiesAndPassions, paidVoterMessage, freeVoterMessage])
+}
+
+// Favorite models (voters favoriting models)
+model Favorite {
+  id String @id @default(cuid())
+
+  voterId String
+  voter   Profile @relation("VoterFavorites", fields: [voterId], references: [id], onDelete: Cascade)
+
+  modelId String
+  model   Profile @relation("ModelFavorites", fields: [modelId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([voterId, modelId])
+  @@index([voterId])
+  @@index([modelId])
+  @@map("favorites")
 }
 
 model ProfileStats {
@@ -451,6 +491,7 @@ model Payment {
 
   amount Float
   status Payment_Status @default(PENDING)
+  type   Payment_Type   @default(MODEL_VOTE) // Type of payment
 
   votes Vote[]
 
@@ -473,4 +514,258 @@ enum Payment_Status {
   PENDING
   COMPLETED
   FAILED
+}
+
+enum Payment_Type {
+  MODEL_VOTE      // Direct vote purchase for a specific model
+  VOTE_CREDITS    // Pre-purchase of vote credits for future use
+}
+
+// ============= GAMIFICATION MODELS =============
+
+// Configuration table for milestone thresholds
+model MilestoneConfig {
+  id String @id @default(cuid())
+  
+  type      Milestone_Type
+  threshold Int
+  name      String         @db.VarChar(255)
+  description String?      @db.Text
+  icon      String?        @db.VarChar(100)
+  reward    String?        @db.Text
+  isActive  Boolean        @default(true)
+  sortOrder Int            @default(0)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type, threshold])
+  @@index([type])
+  @@index([isActive])
+  @@map("milestone_config")
+}
+
+model Milestone {
+  id String @id @default(cuid())
+
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  type           Milestone_Type
+  threshold      Int // The vote count that triggered this milestone (100, 250, 500, etc.)
+  currentValue   Int // The actual value when milestone was reached
+  isNotified     Boolean        @default(false)
+  notifiedAt     DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, type, threshold])
+  @@index([profileId])
+  @@index([type])
+  @@map("milestone")
+}
+
+enum Milestone_Type {
+  VOTE_COUNT // For vote milestones (100, 250, 500, 1000, etc.)
+  REFERRAL_COUNT // For referral milestones
+  RANK_ACHIEVEMENT // For rank changes
+}
+
+model Achievement {
+  id          String @id @default(cuid())
+  code        String @unique @db.VarChar(100) // Unique code like "FIRST_VOTE", "100_VOTES"
+  name        String @db.VarChar(255)
+  description String @db.Text
+  icon        String @db.VarChar(255) // Emoji or icon identifier
+  badgeImage  String? @db.VarChar(500) // URL to badge image
+  category    Achievement_Category
+  requirement Int? // Required value (votes, referrals, etc.)
+  tier        Achievement_Tier @default(BRONZE)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Profiles that have earned this achievement
+  profileAchievements ProfileAchievement[]
+
+  @@index([category])
+  @@index([tier])
+  @@map("achievement")
+}
+
+enum Achievement_Category {
+  VOTING // Achievements related to receiving votes
+  REFERRAL // Achievements related to referrals
+  PARTICIPATION // Achievements related to contest participation
+  SOCIAL // Achievements related to social engagement
+  SPECIAL // Special/limited achievements
+}
+
+enum Achievement_Tier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+}
+
+model ProfileAchievement {
+  id String @id @default(cuid())
+
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  unlockedAt DateTime @default(now())
+  progress   Int      @default(100) // Percentage of completion (100 = fully unlocked)
+
+  @@unique([profileId, achievementId])
+  @@index([profileId])
+  @@index([achievementId])
+  @@map("profile_achievement")
+}
+
+model UnlockedContent {
+  id String @id @default(cuid())
+
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  contentType Unlock_Content_Type
+  title       String              @db.VarChar(255)
+  description String?             @db.Text
+  contentUrl  String?             @db.VarChar(500) // URL to the exclusive content
+  mediaId     String?             @db.VarChar(255) // Reference to media if applicable
+  
+  voteThreshold Int // Required votes to unlock (100, 200, 500, 1000)
+  unlockedAt    DateTime @default(now())
+  isActive      Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([profileId, contentType, voteThreshold])
+  @@index([profileId])
+  @@index([contentType])
+  @@map("unlocked_content")
+}
+
+enum Unlock_Content_Type {
+  EXCLUSIVE_PHOTO // Unlocked at 100 votes
+  VIDEO_MESSAGE // Unlocked at 200 votes
+  AUDIO_MESSAGE // Unlocked at 200 votes (alternative)
+  PRIVATE_CALL // Unlocked at 500 votes
+  SIGNED_MERCH // Unlocked at 1000 votes
+  MAGAZINE_FEATURE // Unlocked at 1000 votes (alternative)
+}
+
+// Configuration table for referral tiers
+model ReferralTier {
+  id String @id @default(cuid())
+  
+  minReferrals Int // Minimum referrals needed for this tier
+  maxReferrals Int? // Maximum referrals (null for highest tier)
+  tierName     String @db.VarChar(100)
+  tierLevel    Int // 1 = Bronze, 2 = Silver, etc.
+  reward       String @db.Text
+  description  String? @db.Text
+  icon         String? @db.VarChar(100)
+  color        String? @db.VarChar(50)
+  isActive     Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tierLevel])
+  @@index([minReferrals])
+  @@index([isActive])
+  @@map("referral_tier")
+}
+
+// ============= SPINNING WHEEL SYSTEM =============
+
+// Configuration for spinning wheel rewards
+model SpinWheelReward {
+  id String @id @default(cuid())
+  
+  name         String @db.VarChar(255)
+  description  String @db.Text
+  icon         String @db.VarChar(100) // Emoji or icon identifier
+  probability  Float // Percentage (e.g., 5.0 for 5%)
+  popupMessage String @db.Text // Message shown when user wins
+  rewardType   Spin_Reward_Type
+  rewardValue  Int? // Value depends on type (e.g., 100 for bonus votes, 3 for days)
+  
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // History of times this reward was won
+  spinHistory SpinWheelHistory[]
+  
+  @@index([isActive])
+  @@index([rewardType])
+  @@map("spin_wheel_reward")
+}
+
+enum Spin_Reward_Type {
+  BONUS_VOTES // Instant bonus votes
+  VOTE_MULTIPLIER // 2x voting power for X days
+  PERSONAL_MESSAGE // Send message to model
+  INSTAGRAM_FEATURE // Get featured on model's story
+  EXCLUSIVE_BADGE // VIP voter badge
+  MAGAZINE_FOLLOW_BACK // Follow back from Swing Magazines
+  DIGITAL_BOUDOIR_ACCESS // Free digital boudoir edition access
+  BTS_VIDEO_LINK // Behind-the-scenes video access
+  VOTE_MULTIPLIER_TOKEN // One-time 10x vote multiplier token
+  FREE_RETRY_SPIN // Free retry to spin again
+  MEET_GREET_DISCOUNT // 50% off meet & greet ticket
+}
+
+// History of all spins by users
+model SpinWheelHistory {
+  id String @id @default(cuid())
+  
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  
+  rewardId String?
+  reward   SpinWheelReward? @relation(fields: [rewardId], references: [id], onDelete: SetNull)
+  
+  rewardName String @db.VarChar(255) // Store name in case reward is deleted
+  rewardType Spin_Reward_Type
+  
+  spunAt DateTime @default(now())
+  
+  @@index([profileId])
+  @@index([profileId, spunAt])
+  @@map("spin_wheel_history")
+}
+
+// Active prizes that can be claimed (like 2x multiplier periods)
+model ActiveSpinPrize {
+  id String @id @default(cuid())
+  
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  
+  prizeType  Spin_Reward_Type
+  prizeValue Int? // e.g., number of bonus votes or days for multiplier
+  
+  isActive   Boolean  @default(true)
+  isClaimed  Boolean  @default(false)
+  claimedAt  DateTime?
+  expiresAt  DateTime? // For time-limited prizes like vote multipliers
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([profileId, isActive])
+  @@index([profileId, prizeType])
+  @@map("active_spin_prize")
 }

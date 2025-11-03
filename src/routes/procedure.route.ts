@@ -5,7 +5,7 @@ import type { AppBindings } from "@/types/types";
 
 import { sendErrorResponse } from "@/helpers/send-error-response";
 import { auth } from "@/lib/auth";
-import { createBaseAPIRouter } from "@/lib/create-app";
+import { createRouter } from "@/lib/create-app";
 
 export type AuthLevel = "public" | "private" | "admin";
 
@@ -36,10 +36,10 @@ export const requireAdmin: MiddlewareHandler = async (c, next) => {
 };
 
 class RouteBuilder {
-  private router: ReturnType<typeof createBaseAPIRouter>;
+  private router: ReturnType<typeof createRouter>;
 
-  constructor(router?: ReturnType<typeof createBaseAPIRouter>) {
-    this.router = router ?? createBaseAPIRouter();
+  constructor(router?: ReturnType<typeof createRouter>) {
+    this.router = router ?? createRouter();
   }
 
   openapi<R extends RouteConfig>(
@@ -82,6 +82,6 @@ class RouteBuilder {
   }
 }
 
-export function createRouteBuilder(router?: ReturnType<typeof createBaseAPIRouter>) {
+export function createRouteBuilder(router?: ReturnType<typeof createRouter>) {
   return new RouteBuilder(router);
 }

@@ -91,8 +91,8 @@ export const getAllVotes: AppRouteHandler<GetAllVotes> = async (c) => {
   // Calculate pagination metadata
   const pagination = calculatePaginationMetadata(total, page, limit);
 
-  // Get votes with related data
-  const votes = await db.vote.findMany({
+  // Get votes with related data (excluding voter to avoid null issues)
+  const votesRaw = await db.vote.findMany({
     where,
     select: {
       id: true,
@@ -100,23 +100,13 @@ export const getAllVotes: AppRouteHandler<GetAllVotes> = async (c) => {
       count: true,
       comment: true,
       createdAt: true,
+      voterId: true,
+      voteeId: true,
       contest: {
         select: {
           id: true,
           name: true,
           slug: true,
-        },
-      },
-      voter: {
-        select: {
-          id: true,
-          user: {
-            select: {
-              username: true,
-              name: true,
-              image: true,
-            },
-          },
         },
       },
       votee: {
@@ -140,42 +130,74 @@ export const getAllVotes: AppRouteHandler<GetAllVotes> = async (c) => {
       },
     },
     skip: (page - 1) * limit,
-    take: limit,
+    take: limit + 50, // Fetch extra to account for null voters
     orderBy,
   });
 
+  // Filter out votes with null voters
+  const validVotes = votesRaw.filter(vote => vote.voterId != null);
+
+  // Get unique voter IDs
+  const voterIds = [...new Set(validVotes.map(vote => vote.voterId))];
+
+  // Fetch voter profiles
+  const voterProfiles = await db.profile.findMany({
+    where: {
+      id: { in: voterIds },
+    },
+    select: {
+      id: true,
+      user: {
+        select: {
+          username: true,
+          name: true,
+          image: true,
+        },
+      },
+    },
+  });
+
+  // Create a map for quick lookup
+  const voterMap = new Map(voterProfiles.map(v => [v.id, v]));
+
+  // Get votes with valid voters and limit to requested page size
+  const votes = validVotes.filter(vote => voterMap.has(vote.voterId!)).slice(0, limit);
+
   // Transform the data to match the AdminVote schema
-  const transformedVotes = votes.map(vote => ({
-    id: vote.id,
-    type: vote.type,
-    count: vote.count,
-    comment: vote.comment,
-    createdAt: vote.createdAt.toISOString(),
-    contest: {
-      id: vote.contest.id,
-      name: vote.contest.name,
-      slug: vote.contest.slug,
-    },
-    voter: {
-      id: vote.voter.id,
-      username: vote.voter.user.username || "",
-      name: vote.voter.user.name,
-      profilePicture: vote.voter.user.image || "",
-    },
-    votee: {
-      id: vote.votee.id,
-      username: vote.votee.user.username || "",
-      name: vote.votee.user.name,
-      profilePicture: vote.votee.user.image || "",
-    },
-    payment: vote.payment
-      ? {
-          id: vote.payment.id,
-          amount: vote.payment.amount,
-          status: vote.payment.status,
-        }
-      : null,
-  }));
+  const transformedVotes = votes.map(vote => {
+    const voter = voterMap.get(vote.voterId!)!;
+    return {
+      id: vote.id,
+      type: vote.type,
+      count: vote.count,
+      comment: vote.comment,
+      createdAt: vote.createdAt.toISOString(),
+      contest: {
+        id: vote.contest.id,
+        name: vote.contest.name,
+        slug: vote.contest.slug,
+      },
+      voter: {
+        id: voter.id,
+        username: voter.user.username || "",
+        name: voter.user.name,
+        profilePicture: voter.user.image || "",
+      },
+      votee: {
+        id: vote.votee.id,
+        username: vote.votee.user.username || "",
+        name: vote.votee.user.name,
+        profilePicture: vote.votee.user.image || "",
+      },
+      payment: vote.payment
+        ? {
+            id: vote.payment.id,
+            amount: vote.payment.amount,
+            status: vote.payment.status,
+          }
+        : null,
+    };
+  });
 
   const response = {
     data: transformedVotes,

@@ -73,6 +73,9 @@ export const list: AppRouteHandler<ListRoute> = async (c) => {
           take: limit,
           include: {
             images: {
+              where: {
+                status: 'COMPLETED'
+              },
               select: {
                 id: true,
                 url: true,
@@ -320,6 +323,9 @@ export const getUpcomingContests: AppRouteHandler<GetUpcomingContestsRoute> = as
       include: {
         awards: true,
         images: {
+          where: {
+            status: 'COMPLETED'
+          },
           select: {
             id: true,
             url: true,
@@ -376,6 +382,9 @@ export const getAvailableContests: AppRouteHandler<GetAvailableContestsRoute> = 
       include: {
         awards: true,
         images: {
+          where: {
+            status: 'COMPLETED'
+          },
           select: {
             id: true,
             url: true,
@@ -429,6 +438,9 @@ export const getJoinedContests: AppRouteHandler<GetJoinedContestsRoute> = async 
       include: {
         awards: true,
         images: {
+          where: {
+            status: 'COMPLETED'
+          },
           select: {
             id: true,
             url: true,

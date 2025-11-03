@@ -89,17 +89,13 @@ export const exportModelData: AppRouteHandler<ExportModelDataRoute> = async (c) 
         },
         votesReceived: {
           where: contestId ? { contestId } : {},
-          include: {
-            voter: {
-              select: {
-                user: {
-                  select: {
-                    username: true,
-                    displayUsername: true,
-                  },
-                },
-              },
-            },
+          select: {
+            id: true,
+            voterId: true,
+            type: true,
+            count: true,
+            createdAt: true,
+            contestId: true,
             contest: {
               select: {
                 id: true,

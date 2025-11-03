@@ -2,6 +2,7 @@
 import { faker } from "@faker-js/faker";
 
 import { db } from "./index";
+import { seedSpinWheelRewards } from "./seed-spin-wheel";
 
 async function runSeed() {
   console.log("⏳ Running seed...");
@@ -32,7 +33,7 @@ async function runSeed() {
         data: {
           userId: user.id,
           bio: faker.lorem.paragraph(),
-          phone: faker.phone.number(),
+          phone: faker.string.numeric(10),
           address: faker.location.streetAddress(),
           city: faker.location.city(),
           country: faker.location.country(),
@@ -42,6 +43,11 @@ async function runSeed() {
           hobbiesAndPassions: faker.lorem.sentence(),
           paidVoterMessage: faker.lorem.sentence(),
           freeVoterMessage: faker.lorem.sentence(),
+          instagram: `@${faker.internet.username()}`,
+          tiktok: `@${faker.internet.username()}`,
+          youtube: `youtube.com/c/${faker.internet.username()}`,
+          facebook: faker.internet.username(),
+          twitter: `@${faker.internet.username()}`,
         },
       });
       profiles.push(profile);
@@ -134,6 +140,9 @@ async function runSeed() {
         });
       }
     }
+
+    // Seed spin wheel rewards
+    await seedSpinWheelRewards();
 
     const end = Date.now();
     console.log(`✅ Seed completed in ${end - start}ms`);

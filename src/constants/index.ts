@@ -1,4 +1,5 @@
 export const FREE_VOTE_INTERVAL = 24 * 60 * 60 * 1000;
+export const FREE_VOTE_COUNT = 5; // Number of votes given per free vote (every 24 hours)
 
 // Vote weights for calculating weighted score
 export const PAID_VOTE_WEIGHT = 10;
