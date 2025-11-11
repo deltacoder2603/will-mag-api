@@ -89,20 +89,20 @@ export const auth = betterAuth({
             }
             
             // Create profile for VOTER users
-            if (userType === "VOTER") {
-              // Check if profile already exists before creating
-              const existingProfile = await db.profile.findUnique({
-                where: { userId: user.id },
+          if (userType === "VOTER") {
+            // Check if profile already exists before creating
+            const existingProfile = await db.profile.findUnique({
+              where: { userId: user.id },
+            });
+            
+            if (!existingProfile) {
+              await db.profile.create({
+                data: {
+                  userId: user.id,
+                  address: "",
+                },
               });
-              
-              if (!existingProfile) {
-                await db.profile.create({
-                  data: {
-                    userId: user.id,
-                    address: "",
-                  },
-                });
-              }
+            }
             }
           } catch (error) {
             console.error("Error in user create hook:", error);

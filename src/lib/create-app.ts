@@ -19,7 +19,7 @@ export function createRouter() {
   });
 }
 export function createBaseAPIRouter() {
-  const app = createRouter().basePath("api/v1");
+  const app = createRouter();
   app.openAPIRegistry.registerComponent("securitySchemes", "Bearer Auth", {
     type: "http",
     scheme: "bearer",

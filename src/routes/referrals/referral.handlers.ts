@@ -7,11 +7,16 @@ import { db } from "@/db";
 import { sendErrorResponse } from "@/helpers/send-error-response";
 import { calculatePaginationMetadata } from "@/lib/queries/query.helper";
 import { REFERRAL_TIER_CONFIGS, getCurrentTier, getNextTier } from "@/config/gamification.config";
+import env from "@/env";
 
 import type { GenerateReferralCodeRoute, GenerateSocialSharingUrlsRoute, ProcessReferralRoute, GetReferralStatsRoute, GetReferralLeaderboardRoute } from "./referral.routes";
 
 // Import email queue
 import { publishEvent } from "../../../email/queue/eventBus.js";
+
+const frontendUrl = env.FRONTEND_URL.replace(/\/$/, "");
+
+const buildReferralLink = (code: string) => `${frontendUrl}/register?ref=${code}`;
 
 /**
  * Generate or get referral code for user
@@ -36,7 +41,7 @@ export const generateReferralCode: AppRouteHandler<GenerateReferralCodeRoute> = 
   if (user.referralCode) {
     return c.json({
       referralCode: user.referralCode,
-      referralLink: `${process.env.FRONTEND_URL || "https://covergirl.com"}/register?ref=${user.referralCode}`,
+      referralLink: buildReferralLink(user.referralCode),
     }, HttpStatusCodes.OK);
   }
 
@@ -50,7 +55,7 @@ export const generateReferralCode: AppRouteHandler<GenerateReferralCodeRoute> = 
 
   return c.json({
     referralCode,
-    referralLink: `${process.env.FRONTEND_URL || "https://covergirl.com"}/register?ref=${referralCode}`,
+    referralLink: buildReferralLink(referralCode),
   }, HttpStatusCodes.CREATED);
 };
 
@@ -85,7 +90,7 @@ export const generateSocialSharingUrls: AppRouteHandler<GenerateSocialSharingUrl
     });
   }
 
-  const referralLink = `${process.env.FRONTEND_URL || "https://covergirl.com"}/register?ref=${referralCode}`;
+  const referralLink = buildReferralLink(referralCode);
   
   // Default sharing message
   const defaultMessage = customMessage || `Join me on Swing Magazine! Use my referral link to get started: ${referralLink}`;
@@ -252,9 +257,7 @@ export const getReferralStats: AppRouteHandler<GetReferralStatsRoute> = async (c
 
   return c.json({
     referralCode: user.referralCode,
-    referralLink: user.referralCode
-      ? `${process.env.FRONTEND_URL || "https://covergirl.com"}/register?ref=${user.referralCode}`
-      : null,
+    referralLink: user.referralCode ? buildReferralLink(user.referralCode) : null,
     totalReferrals: user.referralCount,
     referrals: user.referrals.map(r => ({
       id: r.id,

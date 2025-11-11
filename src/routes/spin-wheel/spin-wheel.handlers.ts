@@ -37,8 +37,8 @@ export const spinWheel: AppRouteHandler<SpinWheelRoute> = async (c) => {
     });
     
     if (!user || !user.profile) {
-      return sendErrorResponse(c, "notFound", "Profile not found");
-    }
+    return sendErrorResponse(c, "notFound", "Profile not found");
+  }
     
     profile = user.profile;
   }
@@ -310,8 +310,8 @@ export const getSpinHistory: AppRouteHandler<GetSpinHistoryRoute> = async (c) =>
     });
     
     if (!user || !user.profile) {
-      return sendErrorResponse(c, "notFound", "Profile not found");
-    }
+    return sendErrorResponse(c, "notFound", "Profile not found");
+  }
     
     profile = user.profile;
   }
@@ -366,8 +366,8 @@ export const getActivePrizes: AppRouteHandler<GetActivePrizesRoute> = async (c) 
     });
     
     if (!user || !user.profile) {
-      return sendErrorResponse(c, "notFound", "Profile not found");
-    }
+    return sendErrorResponse(c, "notFound", "Profile not found");
+  }
     
     profile = user.profile;
   }
@@ -486,8 +486,8 @@ export const canSpinToday: AppRouteHandler<CanSpinTodayRoute> = async (c) => {
     });
     
     if (!user || !user.profile) {
-      return sendErrorResponse(c, "notFound", "Profile not found");
-    }
+    return sendErrorResponse(c, "notFound", "Profile not found");
+  }
     
     profile = user.profile;
   }

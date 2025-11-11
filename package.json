@@ -27,6 +27,7 @@
     "db:seed:milestones": "dotenv tsx scripts/seed-milestone-configs.ts",
     "db:add-test-votes": "dotenv tsx scripts/add-test-votes.ts",
     "db:dump": "dotenv tsx scripts/dump-database.ts",
+    "db:dump:sql": "dotenv tsx scripts/generate-data-sql.ts",
     "email:worker": "node email/queue/worker.js",
     "email:test": "node scripts/test-email-system.js",
     "email:send": "node scripts/send-test-emails.js",
