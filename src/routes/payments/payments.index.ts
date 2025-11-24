@@ -8,7 +8,6 @@ const paymentRouter = createRouteBuilder()
   .openapi(routes.getPaymentHistory, handlers.getPaymentHistory, "private")
   .openapi(routes.getAllPayments, handlers.getAllPayments, "admin")
   .openapi(routes.getPaymentAnalytics, handlers.getPaymentAnalytics, "admin")
-  .openapi(routes.purchaseVoteCredits, handlers.purchaseVoteCredits)
   .openapi(statusRoutes.getPaymentStatusRoute, statusHandlers.getPaymentStatus);
 
 export default paymentRouter.getRouter();

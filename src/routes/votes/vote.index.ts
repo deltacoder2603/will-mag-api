@@ -7,8 +7,6 @@ import * as voteHistoryRoutes from "./vote-history.routes";
 const votesRoutes = createRouteBuilder()
   .openapi(routes.freeVote, handlers.freeVote)
   .openapi(routes.payVote, handlers.payVote)
-  .openapi(routes.castVoteWithCredits, handlers.castVoteWithCredits)
-  .openapi(routes.getAvailableVotes, handlers.getAvailableVotes)
   .openapi(routes.isFreeVoteAvailable, handlers.isFreeVoteAvailable)
   .openapi(routes.getLatestVotes, handlers.getLatestVotes, "admin")
   .openapi(routes.getVotesByProfileId, handlers.getVotesByProfileId)

@@ -8,7 +8,7 @@ import type { AppRouteHandler } from "@/types/types";
 
 import env from "@/env";
 import { sendErrorResponse } from "@/helpers/send-error-response";
-import { client } from "@/lib/cloudflare";
+import { client, isCloudflareConfigured } from "@/lib/cloudflare";
 
 import type { HealthCheckRoute, TransformImageRoute } from "./image.routes";
 
@@ -67,28 +67,30 @@ export const transformImage: AppRouteHandler<TransformImageRoute> = async (c) =>
     // Generate cache key for KV storage
     const cacheKey = `${CACHE_PREFIX}${Buffer.from(JSON.stringify(query)).toString("base64")}`;
 
-    // ✅ Check KV cache first
-    try {
-      const cachedValue = await client.kv.namespaces.values.get(
-        env.CLOUDFLARE_KV_NAMESPACE!,
-        cacheKey,
-        { account_id: env.CLOUDFLARE_ACCOUNT_ID! },
-      );
+    // ✅ Check KV cache first (only if Cloudflare is configured)
+    if (isCloudflareConfigured() && client) {
+      try {
+        const cachedValue = await client.kv.namespaces.values.get(
+          env.CLOUDFLARE_KV_NAMESPACE!,
+          cacheKey,
+          { account_id: env.CLOUDFLARE_ACCOUNT_ID! },
+        );
 
-      if (cachedValue) {
-        const cachedText = await cachedValue.text();
-        const cachedBuffer = Buffer.from(cachedText, "base64");
+        if (cachedValue) {
+          const cachedText = await cachedValue.text();
+          const cachedBuffer = Buffer.from(cachedText, "base64");
 
-        const mimeType = getMimeType(f);
-        c.header("Content-Type", mimeType);
-        c.header("Cache-Control", `public, max-age=${CACHE_TTL}, immutable`);
-        c.header("X-Cached", "true");
-        return c.body(new Uint8Array(cachedBuffer));
+          const mimeType = getMimeType(f);
+          c.header("Content-Type", mimeType);
+          c.header("Cache-Control", `public, max-age=${CACHE_TTL}, immutable`);
+          c.header("X-Cached", "true");
+          return c.body(new Uint8Array(cachedBuffer));
+        }
+      } catch (error: unknown) {
+        const err = error as CloudflareError;
+        console.warn("KV cache retrieval failed:", err?.message || error);
+        // Continue if cache fails
       }
-    } catch (error: unknown) {
-      const err = error as CloudflareError;
-      console.warn("KV cache retrieval failed:", err?.message || error);
-      // Continue if cache fails
     }
 
     // --- Fetch original image ---
@@ -167,8 +169,8 @@ export const transformImage: AppRouteHandler<TransformImageRoute> = async (c) =>
 
     const finalBuffer = await sharpInstance.toBuffer();
 
-    // Store in KV if <5MB
-    if (finalBuffer.length < 5 * 1024 * 1024) {
+    // Store in KV if <5MB and Cloudflare is configured
+    if (finalBuffer.length < 5 * 1024 * 1024 && isCloudflareConfigured() && client) {
       try {
         await client.kv.namespaces.values.update(env.CLOUDFLARE_KV_NAMESPACE!, cacheKey, {
           account_id: env.CLOUDFLARE_ACCOUNT_ID!,

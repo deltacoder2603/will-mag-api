@@ -85,47 +85,6 @@ export const getPaymentAnalytics = createRoute({
   },
 });
 
-export const purchaseVoteCredits = createRoute({
-  path: "/payments/vote-credits/purchase",
-  method: "post",
-  tags,
-  summary: "Purchase vote credits",
-  description: "Create a Stripe checkout session to purchase vote credits for a voter",
-  request: {
-    body: jsonContent(
-      z.object({
-        profileId: z.string().describe("The voter profile ID making the purchase"),
-        voteCount: z.number().min(5).max(1000).describe("Number of vote credits to purchase (5-1000)"),
-        successUrl: z.string().url().optional().describe("URL to redirect to after successful payment"),
-        cancelUrl: z.string().url().optional().describe("URL to redirect to if payment is cancelled"),
-      }),
-      "Vote credit purchase request",
-    ),
-  },
-  responses: {
-    [HttpStatusCodes.OK]: jsonContent(
-      z.object({
-        sessionId: z.string(),
-        url: z.string(),
-        paymentId: z.string(),
-      }),
-      "Stripe checkout session created successfully",
-    ),
-    [HttpStatusCodes.BAD_REQUEST]: z.object({
-      message: z.string(),
-    }).openapi({
-      description: "Invalid vote count or profile",
-    }),
-    [HttpStatusCodes.NOT_FOUND]: NotFoundResponse("Profile not found"),
-    [HttpStatusCodes.SERVICE_UNAVAILABLE]: z.object({
-      message: z.string(),
-    }).openapi({
-      description: "Stripe service unavailable",
-    }),
-  },
-});
-
 export type GetPaymentHistory = typeof getPaymentHistory;
 export type GetAllPayments = typeof getAllPayments;
 export type GetPaymentAnalytics = typeof getPaymentAnalytics;
-export type PurchaseVoteCredits = typeof purchaseVoteCredits;

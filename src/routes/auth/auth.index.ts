@@ -55,12 +55,28 @@ const router = createRouter()
       const response = await auth.handler(c.req.raw);
       return response;
     } catch (error) {
-      // Only log errors, but let Better Auth handle error responses
-      // Better Auth has its own error page system that we shouldn't interfere with
-      console.error("Better Auth Handler Error:", error);
+      // Enhanced error logging for network/DNS issues
       if (error instanceof Error) {
-        console.error("Error message:", error.message);
-        console.error("Error stack:", error.stack);
+        // Check for DNS/network errors
+        if (error.message.includes("ENOTFOUND") || error.message.includes("getaddrinfo")) {
+          console.error("🌐 Network/DNS Error in Better Auth:");
+          console.error("   This usually means the server cannot reach Google OAuth servers.");
+          console.error("   Check your internet connection and DNS settings.");
+          console.error("   Error:", error.message);
+          
+          // Check if it's specifically oauth2.googleapis.com
+          if (error.message.includes("oauth2.googleapis.com")) {
+            console.error("   💡 Tip: Verify DNS resolution with: nslookup oauth2.googleapis.com");
+            console.error("   💡 Tip: Check if firewall is blocking outbound HTTPS connections");
+          }
+        } else {
+          console.error("Better Auth Handler Error:", error.message);
+          if (error.stack) {
+            console.error("Error stack:", error.stack);
+          }
+        }
+      } else {
+        console.error("Better Auth Handler Error:", error);
       }
       // Re-throw to let Better Auth's internal error handling work
       throw error;

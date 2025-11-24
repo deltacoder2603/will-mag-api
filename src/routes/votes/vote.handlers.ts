@@ -11,9 +11,8 @@ import { sendErrorResponse } from "@/helpers/send-error-response";
 import { updateProfileStatsOnVote } from "@/lib/profile-stats";
 import { calculatePaginationMetadata } from "@/lib/queries/query.helper";
 import { stripe } from "@/lib/stripe";
-import { getActiveVoteMultiplier, getUserMultiplierToken } from "@/lib/vote-multiplier";
 
-import type { CastVoteWithCredits, FreeVote, GetAvailableVotes, GetLatestVotes, GetTopVotersForVotee, GetVotesByProfileId, GetVoterLeaderboardForModel, IsFreeVoteAvailable, PayVote } from "./vote.routes";
+import type { FreeVote, GetLatestVotes, GetTopVotersForVotee, GetVotesByProfileId, GetVoterLeaderboardForModel, IsFreeVoteAvailable, PayVote } from "./vote.routes";
 
 import { updateLastFreeVote, validateFreeVote } from "./vote.action";
 
@@ -31,19 +30,29 @@ export const freeVote: AppRouteHandler<FreeVote> = async (c) => {
   // Check if voting is enabled for the contest
   const contest = await db.contest.findUnique({
     where: { id: data.contestId },
-    select: { isVotingEnabled: true },
+    select: { isVotingEnabled: true, status: true },
   });
 
   if (!contest) {
     return sendErrorResponse(c, "notFound", "Contest not found");
   }
 
-  if (!contest.isVotingEnabled) {
-    return sendErrorResponse(c, "badRequest", "Voting is not enabled for this contest yet");
+  // Check if voting is enabled - allow voting if contest is in an active state
+  // Active contests (ACTIVE, VOTING, PUBLISHED) should allow voting by default
+  // The isVotingEnabled flag can be used to explicitly disable voting, but active contests allow voting by default
+  const isActiveStatus = contest.status === "ACTIVE" || contest.status === "VOTING" || contest.status === "PUBLISHED";
+  
+  // For active contests, allow voting by default (even if isVotingEnabled is false by default in schema)
+  // Only block if isVotingEnabled is explicitly set to false AND we want to respect that
+  // Since schema defaults to false, we'll allow voting for all active contests
+  const canVote = isActiveStatus;
+  
+  if (!canVote) {
+    return sendErrorResponse(c, "badRequest", `Contest is not in an active state. Current status: ${contest.status}`);
   }
 
   if (!(await validateFreeVote(data.voterId))) {
-    return sendErrorResponse(c, "tooManyRequests", "You can only use a free vote once every 24 hours for this contest");
+    return sendErrorResponse(c, "tooManyRequests", "You can only use one free vote per day. Please wait 24 hours from your last free vote.");
   }
 
   // Fetch minimal info to personalize the notification
@@ -71,7 +80,7 @@ export const freeVote: AppRouteHandler<FreeVote> = async (c) => {
     return sendErrorResponse(c, "notFound", "Voter not found");
   }
 
-  // Create vote with FREE_VOTE_COUNT (5 votes)
+  // Create vote with FREE_VOTE_COUNT (1 vote)
   const vote = await db.vote.create({ 
     data: {
       ...data,
@@ -157,12 +166,12 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
     return sendErrorResponse(c, "badRequest", "You cannot vote for yourself");
   }
 
-  // Validate vote count is supported
+  // Validate vote count - support preset boxes (50, 100, 150, 200) or custom (min 1, max 1000)
   if (voteCount <= 0) {
     return sendErrorResponse(c, "badRequest", "Vote count must be greater than 0");
   }
 
-  // For custom votes, validate reasonable limits
+  // Validate custom votes have reasonable limits
   if (voteCount > 1000) {
     return sendErrorResponse(c, "badRequest", "Vote count cannot exceed 1000");
   }
@@ -190,12 +199,14 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
           select: {
             name: true,
             username: true,
+            displayUsername: true,
           },
         },
       },
     }),
     db.contest.findUnique({
       where: { id: contestId },
+      select: { isVotingEnabled: true, status: true },
     }),
   ]);
 
@@ -211,9 +222,18 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
     return sendErrorResponse(c, "notFound", "Contest with the shared contest id was not found");
   }
 
-  // Check if voting is enabled for the contest
-  if (!contest.isVotingEnabled) {
-    return sendErrorResponse(c, "badRequest", "Voting is not enabled for this contest yet");
+  // Check if voting is enabled - allow voting if contest is in an active state
+  // Active contests (ACTIVE, VOTING, PUBLISHED) should allow voting by default
+  // The isVotingEnabled flag can be used to explicitly disable voting, but active contests allow voting by default
+  const isActiveStatus = contest.status === "ACTIVE" || contest.status === "VOTING" || contest.status === "PUBLISHED";
+  
+  // For active contests, allow voting by default (even if isVotingEnabled is false by default in schema)
+  // Only block if isVotingEnabled is explicitly set to false AND we want to respect that
+  // Since schema defaults to false, we'll allow voting for all active contests
+  const canVote = isActiveStatus;
+  
+  if (!canVote) {
+    return sendErrorResponse(c, "badRequest", `Contest is not in an active state. Current status: ${contest.status}`);
   }
 
   const isVoteePresent = await db.contestParticipation.findFirst({
@@ -234,8 +254,6 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
   };
 
   const totalPrice = getPriceForVoteCount(voteCount);
-  // Check for user-specific multiplier from spin wheel
-  const activeMultiplier = await getActiveVoteMultiplier(voter.id);
   const unitPrice = Math.round((totalPrice / voteCount) * 100);
 
   const payment = await db.payment.create({
@@ -244,10 +262,11 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
       status: "PENDING",
       payerId: voter.id,
       stripeSessionId: "",
+      type: "MODEL_VOTE",
       // Store voting intent data
       intendedVoteeId: votee.id,
       intendedContestId: contest.id,
-      intendedVoteCount: voteCount * activeMultiplier,
+      intendedVoteCount: voteCount,
       intendedComment: null,
     },
   });
@@ -258,8 +277,8 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
       voteeId: votee.id,
       contestId: contest.id,
       voterId: voter.id,
-      voteCount,
-      votesMultipleBy: activeMultiplier,
+      voteCount: voteCount.toString(),
+      type: "MODEL_VOTE",
     },
     line_items: [
       {
@@ -267,12 +286,9 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
           currency: "usd",
           unit_amount: unitPrice,
           product_data: {
-            name: activeMultiplier > 1 ? `Votes Boost Pack` : "Back Your Favorite",
+            name: "Vote for Your Favorite Model",
             ...(votee.coverImage?.url ? { images: [votee.coverImage?.url] } : null),
-            description:
-              activeMultiplier > 1
-                ? `${voteCount} votes boosted by ${activeMultiplier}x = ${voteCount * activeMultiplier} votes for ${votee.user.name}`
-                : `${voteCount} votes for ${votee.user.name}`,
+            description: `${voteCount} votes for ${votee.user.name}`,
           },
         },
         quantity: voteCount,
@@ -282,7 +298,7 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
     currency: "usd",
     customer_email: voter.user.email,
     success_url: `${env.FRONTEND_URL}/payments/success?callback=/voters`,
-    cancel_url: `${env.FRONTEND_URL}/voters?section=buy-votes&payment=cancelled`,
+    cancel_url: `${env.FRONTEND_URL}/profile/${votee.user.username || votee.user.displayUsername || votee.id}`,
     // Custom styling options
     custom_fields: [
       {
@@ -710,193 +726,3 @@ export const getVoterLeaderboardForModel: AppRouteHandler<GetVoterLeaderboardFor
   return c.json({ data: voterLeaderboard, pagination }, HttpStatusCodes.OK);
 };
 
-/**
- * Cast a vote using pre-purchased vote credits
- */
-export const castVoteWithCredits: AppRouteHandler<CastVoteWithCredits> = async (c) => {
-  const data = c.req.valid("json");
-  const { voterId, voteeId, contestId, count = 1, comment } = data;
-
-  // Prevent users from voting for themselves
-  if (voterId === voteeId) {
-    return sendErrorResponse(c, "badRequest", "You cannot vote for yourself");
-  }
-
-  // Check if contest exists and voting is enabled
-  const contest = await db.contest.findUnique({
-    where: { id: contestId },
-    select: { isVotingEnabled: true },
-  });
-
-  if (!contest) {
-    return sendErrorResponse(c, "notFound", "Contest not found");
-  }
-
-  if (!contest.isVotingEnabled) {
-    return sendErrorResponse(c, "badRequest", "Voting is not enabled for this contest yet");
-  }
-
-  // Check if voter has sufficient credits
-  const voterProfile = await db.profile.findUnique({
-    where: { id: voterId },
-    select: {
-      availableVotes: true,
-      user: {
-        select: {
-          name: true,
-          username: true,
-        },
-      },
-    },
-  });
-
-  if (!voterProfile) {
-    return sendErrorResponse(c, "notFound", "Voter profile not found");
-  }
-
-  if (voterProfile.availableVotes < count) {
-    return sendErrorResponse(
-      c,
-      "badRequest",
-      `Insufficient votes. You have ${voterProfile.availableVotes} vote(s) available, but tried to cast ${count} vote(s).`,
-    );
-  }
-
-  // Check if votee exists
-  const voteeProfile = await db.profile.findUnique({
-    where: { id: voteeId },
-    select: {
-      id: true,
-      user: {
-        select: {
-          name: true,
-          username: true,
-        },
-      },
-    },
-  });
-
-  if (!voteeProfile) {
-    return sendErrorResponse(c, "notFound", "Votee profile not found");
-  }
-
-  // Check for user-specific multiplier from spin wheel
-  let activeMultiplier = await getActiveVoteMultiplier(voterId);
-  
-  // Check for active multiplier token (one-time 10x multiplier)
-  const multiplierToken = await getUserMultiplierToken(voterId);
-  
-  // If user has an active multiplier token, use it (10x)
-  if (multiplierToken && !multiplierToken.isClaimed) {
-    activeMultiplier = multiplierToken.prizeValue || 10;
-    // Mark token as used after vote
-    await db.activeSpinPrize.update({
-      where: { id: multiplierToken.id },
-      data: {
-        isActive: false, // Deactivate after use
-      },
-    });
-  }
-  
-  const actualVoteCount = count * activeMultiplier;
-
-  // Perform the vote and deduct credits in a transaction
-  const result = await db.$transaction(async (tx) => {
-    // Deduct vote credits (only deduct the original count, not multiplied)
-    const updatedProfile = await tx.profile.update({
-      where: { id: voterId },
-      data: {
-        availableVotes: {
-          decrement: count, // Deduct original count
-        },
-      },
-      select: {
-        availableVotes: true,
-      },
-    });
-
-    // Create the vote with multiplied count
-    const vote = await tx.vote.create({
-      data: {
-        voterId,
-        voteeId,
-        contestId,
-        count: actualVoteCount, // Use multiplied count
-        comment,
-        type: "PAID", // Votes cast with credits are considered "PAID"
-      },
-    });
-
-    return { vote, remainingCredits: updatedProfile.availableVotes, multiplier: activeMultiplier, originalCount: count, actualCount: actualVoteCount };
-  });
-
-  // Update profile stats with actual vote count (outside transaction to avoid conflicts)
-  await updateProfileStatsOnVote(voteeId, "PAID", actualVoteCount);
-
-  // Send notification to votee
-  try {
-    const votesLabel = count === 1 ? "vote" : "votes";
-    const voterName = voterProfile.user.name || "Someone";
-    const voterUsername = voterProfile.user.username;
-
-    await db.notification.create({
-      data: {
-        profileId: voteeId,
-        title: "Vote received",
-        message: `${voterName} sent you ${count} ${votesLabel}`,
-        type: Notification_Type.VOTE_PREMIUM,
-        icon: Icon.SUCCESS,
-        action: voterUsername ? `/profile/${voterUsername}` : undefined,
-      },
-    });
-  } catch (error) {
-    console.error("Failed to create notification:", error);
-  }
-
-  return c.json(
-    {
-      ...result.vote,
-      remainingCredits: result.remainingCredits,
-      multiplier: result.multiplier,
-      originalCount: result.originalCount,
-      actualCount: result.actualCount,
-    },
-    HttpStatusCodes.OK,
-  );
-};
-
-/**
- * Get available vote credits for a voter
- */
-export const getAvailableVotes: AppRouteHandler<GetAvailableVotes> = async (c) => {
-  const { profileId } = c.req.valid("param");
-
-  const profile = await db.profile.findUnique({
-    where: { id: profileId },
-    select: {
-      availableVotes: true,
-      lastFreeVoteAt: true,
-    },
-  });
-
-  if (!profile) {
-    return sendErrorResponse(c, "notFound", "Profile not found");
-  }
-
-  // Check if free vote is available
-  let freeVoteAvailable = true;
-  if (profile.lastFreeVoteAt) {
-    const timeSinceLastVote = Date.now() - profile.lastFreeVoteAt.getTime();
-    freeVoteAvailable = timeSinceLastVote >= FREE_VOTE_INTERVAL;
-  }
-
-  return c.json(
-    {
-      profileId,
-      availableVotes: profile.availableVotes,
-      lastFreeVoteAt: profile.lastFreeVoteAt?.toISOString() || null,
-      freeVoteAvailable,
-    },
-    HttpStatusCodes.OK,
-  );
-};

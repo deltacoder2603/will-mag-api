@@ -17,7 +17,7 @@ export const PayVoteResponseSchema = z.object({
 // ===== STRIPE METADATA =====
 export const PaymentMetadataSchema = PayVoteRequestSchema.extend({
   paymentId: z.string(),
-  votesMultipleBy: z.coerce.number().int().positive().default(1),
+  type: z.string().default("MODEL_VOTE"),
 });
 
 // ===== PAYMENT SCHEMA =====

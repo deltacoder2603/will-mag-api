@@ -25,12 +25,8 @@ import uploadthing from "@/routes/upload/uploadthing.index";
 import user from "@/routes/users/user.index";
 import voteMultiplier from "@/routes/votes/vote-multiplier.index";
 import vote from "@/routes/votes/vote.index";
-import milestone from "@/routes/milestones/milestone.index";
-import achievement from "@/routes/achievements/achievement.index";
-import unlock from "@/routes/unlocks/unlock.index";
 import debug from "@/routes/debug/debug.index";
 import voter from "@/routes/voters/voter.index";
-import spinWheel from "@/routes/spin-wheel/spin-wheel.index";
 import favorites from "@/routes/favorites/favorites.index";
 
 import stripeWebhookRouter from "./routes/webhooks/stripe/stripe.index";
@@ -39,7 +35,7 @@ import emailWebhookRouter from "./routes/webhooks/email/email.index";
 const server = createApp();
 configureOpenAPI(server);
 
-const routes = [index, auth, user, profile, notification, contest, awards, contestParticipation, vote, voteMultiplier, ranks, payment, uploadthing, search, analytics, adminVotes, adminNotifications, adminProfileStats, images, exportRouter, cache, referral, milestone, achievement, unlock, debug, voter, spinWheel, favorites] as const;
+const routes = [index, auth, user, profile, notification, contest, awards, contestParticipation, vote, voteMultiplier, ranks, payment, uploadthing, search, analytics, adminVotes, adminNotifications, adminProfileStats, images, exportRouter, cache, referral, debug, voter, favorites] as const;
 
 routes.forEach((route) => {
   server.route("/api/v1", route);

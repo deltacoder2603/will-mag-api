@@ -232,9 +232,14 @@ export const getByUserId: AppRouteHandler<GetByUserIdRoute> = async (c) => {
 export const getByUsername: AppRouteHandler<GetByUsernameRoute> = async (c) => {
   const { username } = c.req.valid("param");
 
-  // First find the user by username
-  const user = await db.user.findUnique({
-    where: { username },
+  // First try to find the user by username, then by displayUsername
+  let user = await db.user.findFirst({
+    where: {
+      OR: [
+        { username },
+        { displayUsername: username },
+      ],
+    },
     select: {
       profile: {
         include: {

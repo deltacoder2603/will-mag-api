@@ -17,7 +17,6 @@ const router = createRouter()
   .openapi(routes.getVoterStats, handlers.getVoterStats)
   .openapi(routes.getAvailableContests, handlers.getAvailableContests)
   .openapi(routes.getContestParticipants, handlers.getContestParticipants)
-  .openapi(routes.spinWheel, handlers.spinWheel)
   .openapi(routes.getVoterProgress, handlers.getVoterProgress);
 
 export default router;

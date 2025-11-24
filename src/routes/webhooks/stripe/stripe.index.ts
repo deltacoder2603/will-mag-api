@@ -73,72 +73,6 @@ stripeWebhookRouter.post("/api/v1/webhooks/stripe", async (c) => {
 
 export default stripeWebhookRouter;
 
-/**
- * Handle vote credits purchase completion
- */
-async function handleVoteCreditsPurchase(session: Stripe.Checkout.Session) {
-  if (!session.metadata) {
-    throw new Error("Missing metadata in checkout session");
-  }
-
-  const { paymentId, profileId, voteCount } = session.metadata;
-  const votes = Number.parseInt(voteCount || "0");
-
-  if (!paymentId || !profileId || !votes) {
-    throw new Error("Invalid metadata for vote credits purchase");
-  }
-
-  await db.$transaction(async (tx) => {
-    // Check if payment already processed
-    const existingPayment = await tx.payment.findUnique({
-      where: { id: paymentId },
-    });
-
-    if (!existingPayment) {
-      console.error("Payment not found:", paymentId);
-      return;
-    }
-
-    if (existingPayment.status === "COMPLETED" || existingPayment.status === "FAILED") {
-      console.log("Payment already processed:", paymentId);
-      return;
-    }
-
-    // Update payment status
-    await tx.payment.update({
-      where: { id: paymentId },
-      data: {
-        status: "COMPLETED",
-        stripeSessionId: session.id,
-      },
-    });
-
-    // Credit votes to voter's profile
-    await tx.profile.update({
-      where: { id: profileId },
-      data: {
-        availableVotes: {
-          increment: votes,
-        },
-      },
-    });
-  });
-
-  // Send notification to voter
-  try {
-    await db.notification.create({
-      data: {
-        profileId,
-        title: "Vote credits purchased!",
-        message: `Successfully purchased ${votes} vote credits. You can now vote for your favorite models!`,
-        type: Notification_Type.SYSTEM,
-        icon: Icon.SUCCESS,
-      },
-    });
-  } catch (error) {
-    console.error("Failed to create notification:", error);
-  }
-}
 
 async function sessionCompleted(event: Stripe.Event) {
   const eventObject = event.data.object as Stripe.Checkout.Session;
@@ -147,15 +81,7 @@ async function sessionCompleted(event: Stripe.Event) {
     throw new Error("Missing metadata in checkout session");
   }
 
-  const paymentType = eventObject.metadata.type;
-
-  // Handle vote credits purchase (different from model-specific votes)
-  if (paymentType === "VOTE_CREDITS") {
-    await handleVoteCreditsPurchase(eventObject);
-    return;
-  }
-
-  // Handle traditional model vote purchase
+  // Handle model vote purchase
   const metadata = PaymentMetadataSchema.parse({
     ...eventObject.metadata,
     voteCount: Number.parseInt(eventObject.metadata.voteCount || "1"),
@@ -165,25 +91,7 @@ async function sessionCompleted(event: Stripe.Event) {
   // Extract comment from custom fields if available
   const comment = eventObject.custom_fields?.find(field => field.key === "comment")?.text?.value || null;
 
-  // Check for multiplier token at webhook time (in case user activated it after payment)
-  const { getUserMultiplierToken } = await import("@/lib/vote-multiplier");
-  const multiplierToken = await getUserMultiplierToken(metadata.voterId);
-  let finalMultiplier = metadata.votesMultipleBy || 1;
-  
-  // If user has an active multiplier token, use it (10x takes precedence)
-  if (multiplierToken && !multiplierToken.isClaimed) {
-    finalMultiplier = multiplierToken.prizeValue || 10;
-    // Mark token as used
-    await db.activeSpinPrize.update({
-      where: { id: multiplierToken.id },
-      data: {
-        isActive: false, // Deactivate after use
-      },
-    });
-  }
-
-  const originalVoteCount = metadata.voteCount;
-  const totalVoteCount = originalVoteCount * finalMultiplier;
+  const totalVoteCount = metadata.voteCount;
 
   await db.$transaction(async (tx) => {
     const existingPayment = await tx.payment.findUnique({
@@ -232,7 +140,6 @@ async function sessionCompleted(event: Stripe.Event) {
 
     const voterName = voter?.user?.name ?? "Someone";
     const voterUsername = voter?.user?.username;
-    const totalVoteCount = metadata.voteCount * metadata.votesMultipleBy;
     const votesLabel = totalVoteCount === 1 ? "paid vote" : "paid votes";
 
     await db.notification.create({

@@ -27,7 +27,7 @@ export const freeVote = createRoute({
   method: "post",
   summary: "Give a free vote",
   description:
-    "Give a free vote in a contest for a profile. Free votes are limited to one per 24 hours per contest.",
+    "Give a free vote in a contest for a profile. Free votes are limited to one per day (24 hours).",
   tags,
   request: {
     body: jsonContentRequired(
@@ -194,64 +194,6 @@ export const getVoterLeaderboardForModel = createRoute({
   },
 });
 
-export const castVoteWithCredits = createRoute({
-  path: "/contest/vote/credits",
-  method: "post",
-  summary: "Cast vote using pre-purchased credits",
-  description: "Cast a vote using available vote credits. Checks if voter has sufficient credits and deducts them.",
-  tags,
-  request: {
-    body: jsonContentRequired(
-      VoteInsertSchema.omit({ type: true }).extend({
-        count: z.number().min(1).max(100).default(1).describe("Number of votes to cast (1-100)"),
-      }),
-      "Vote payload with optional count",
-    ),
-  },
-  responses: {
-    [HttpStatusCodes.OK]: jsonContent(
-      VoteSelectSchema.extend({
-        remainingCredits: z.number().describe("Remaining vote credits after this vote"),
-        multiplier: z.number().optional().describe("Active multiplier applied"),
-        originalCount: z.number().optional().describe("Original vote count before multiplier"),
-        actualCount: z.number().optional().describe("Actual vote count after multiplier"),
-      }),
-      "Vote cast successfully",
-    ),
-    [HttpStatusCodes.BAD_REQUEST]: BadRequestResponse("Insufficient votes or cannot vote for yourself"),
-    [HttpStatusCodes.NOT_FOUND]: NotFoundResponse("Contest or profile not found"),
-    [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent(
-      createErrorSchema(VoteInsertSchema),
-      "Validation error(s)",
-    ),
-  },
-});
-
-export const getAvailableVotes = createRoute({
-  path: "/votes/available/{profileId}",
-  method: "get",
-  summary: "Get available vote credits",
-  description: "Get the number of available vote credits for a voter profile",
-  tags,
-  request: {
-    params: z.object({
-      profileId: z.string().describe("The voter profile ID"),
-    }),
-  },
-  responses: {
-    [HttpStatusCodes.OK]: jsonContent(
-      z.object({
-        profileId: z.string(),
-        availableVotes: z.number(),
-        lastFreeVoteAt: z.string().nullable(),
-        freeVoteAvailable: z.boolean(),
-      }),
-      "Available votes retrieved successfully",
-    ),
-    [HttpStatusCodes.NOT_FOUND]: NotFoundResponse("Profile not found"),
-  },
-});
-
 export type FreeVote = typeof freeVote;
 export type IsFreeVoteAvailable = typeof isFreeVoteAvailable;
 export type PayVote = typeof payVote;
@@ -259,5 +201,3 @@ export type GetLatestVotes = typeof getLatestVotes;
 export type GetVotesByProfileId = typeof getVotesByProfileId;
 export type GetTopVotersForVotee = typeof getTopVotersForVotee;
 export type GetVoterLeaderboardForModel = typeof getVoterLeaderboardForModel;
-export type CastVoteWithCredits = typeof castVoteWithCredits;
-export type GetAvailableVotes = typeof getAvailableVotes;

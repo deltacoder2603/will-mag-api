@@ -18,41 +18,6 @@ const VoterStatsSchema = z.object({
     voteCount: z.number(),
     avatarUrl: z.string().nullable(),
   })).describe("Top 5 models voted for"),
-  currentMilestone: z.object({
-    level: z.number(),
-    name: z.string(),
-    votesRequired: z.number(),
-    isUnlocked: z.boolean(),
-  }).nullable(),
-  nextMilestone: z.object({
-    level: z.number(),
-    name: z.string(),
-    votesRequired: z.number(),
-    votesRemaining: z.number(),
-    progress: z.number(),
-  }).nullable(),
-  achievements: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string(),
-    icon: z.string(),
-    unlockedAt: z.string().nullable(),
-    isUnlocked: z.boolean(),
-  })),
-  unlockedRewards: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string(),
-    type: z.enum(["PHOTO", "VIDEO", "AUDIO", "CALL", "MERCH"]),
-    unlockedAt: z.string(),
-    accessUrl: z.string().nullable(),
-    accessCode: z.string().nullable(),
-  })),
-  spinWheelData: z.object({
-    availableSpins: z.number(),
-    lastSpinAt: z.string().nullable(),
-    totalSpins: z.number(),
-  }),
 });
 
 // Get Voter Statistics
@@ -61,7 +26,7 @@ export const getVoterStats = createRoute({
   method: "get",
   tags,
   summary: "Get Voter Statistics",
-  description: "Get comprehensive statistics for a voter including votes, milestones, achievements, and rewards",
+  description: "Get comprehensive statistics for a voter including votes and favorite models",
   request: {
     params: z.object({
       userId: z.string().describe("User ID"),
@@ -154,47 +119,13 @@ export const getContestParticipants = createRoute({
   },
 });
 
-// Spin Wheel
-export const spinWheel = createRoute({
-  path: "/voter/{userId}/spin",
-  method: "post",
-  tags,
-  summary: "Spin the Reward Wheel",
-  description: "Spin the wheel to win prizes (requires available spins)",
-  request: {
-    params: z.object({
-      userId: z.string().describe("User ID"),
-    }),
-  },
-  responses: {
-    [HttpStatusCodes.OK]: jsonContent(
-      z.object({
-        prize: z.object({
-          id: z.string(),
-          name: z.string(),
-          type: z.enum(["VOTES", "BADGE", "UNLOCK", "DISCOUNT", "SPIN"]),
-          value: z.number(),
-          description: z.string(),
-        }),
-        spinsRemaining: z.number(),
-      }),
-      "Wheel spun successfully",
-    ),
-    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
-      z.object({ message: z.string() }),
-      "No spins available",
-    ),
-    [HttpStatusCodes.NOT_FOUND]: NotFoundResponse("User not found"),
-  },
-});
-
 // Get Voter Progress
 export const getVoterProgress = createRoute({
   path: "/voter/{userId}/progress",
   method: "get",
   tags,
   summary: "Get Voter Progress",
-  description: "Get detailed progress tracking including milestones and achievements",
+  description: "Get detailed voting history and progress",
   request: {
     params: z.object({
       userId: z.string().describe("User ID"),
@@ -204,20 +135,6 @@ export const getVoterProgress = createRoute({
     [HttpStatusCodes.OK]: jsonContent(
       z.object({
         totalVotes: z.number(),
-        milestones: z.array(z.object({
-          level: z.number(),
-          name: z.string(),
-          votesRequired: z.number(),
-          reward: z.string(),
-          isUnlocked: z.boolean(),
-          unlockedAt: z.string().nullable(),
-        })),
-        progressToNext: z.object({
-          currentVotes: z.number(),
-          nextMilestone: z.number(),
-          votesNeeded: z.number(),
-          percentComplete: z.number(),
-        }),
         votingHistory: z.array(z.object({
           date: z.string(),
           voteCount: z.number(),
@@ -233,5 +150,4 @@ export const getVoterProgress = createRoute({
 export type GetVoterStatsRoute = typeof getVoterStats;
 export type GetAvailableContestsRoute = typeof getAvailableContests;
 export type GetContestParticipantsRoute = typeof getContestParticipants;
-export type SpinWheelRoute = typeof spinWheel;
 export type GetVoterProgressRoute = typeof getVoterProgress;
