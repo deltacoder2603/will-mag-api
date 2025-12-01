@@ -158,6 +158,14 @@ model Profile {
   // Favorited by (as a model)
   favoritedBy      Favorite[] @relation("ModelFavorites")
 
+  // Milestone tracking (as a voter)
+  voterMilestones  VoterModelMilestone[] @relation("VoterMilestones")
+  // Milestone tracking (as a model)
+  modelMilestones  VoterModelMilestone[] @relation("ModelMilestones")
+
+  // Vote milestones (for vote count achievements)
+  milestones Milestone[] @relation("ProfileMilestones")
+
   @@fulltext([bio])
   @@fulltext([hobbiesAndPassions])
   @@fulltext([paidVoterMessage])
@@ -531,4 +539,55 @@ model ReferralTier {
   @@index([minReferrals])
   @@index([isActive])
   @@map("referral_tier")
+}
+
+// Milestone model for tracking vote count achievements
+model Milestone {
+  id String @id @default(cuid())
+
+  profileId String
+  profile   Profile @relation("ProfileMilestones", fields: [profileId], references: [id], onDelete: Cascade)
+
+  type        Milestone_Type
+  threshold   Int
+  currentValue Int @default(0)
+  isNotified  Boolean @default(false)
+  notifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId])
+  @@index([type])
+  @@index([profileId, type])
+  @@map("milestone")
+}
+
+enum Milestone_Type {
+  VOTE_COUNT
+}
+
+// Milestone tracking for spin wheel rewards based on spending per model
+model VoterModelMilestone {
+  id String @id @default(cuid())
+
+  voterId String
+  voter   Profile @relation("VoterMilestones", fields: [voterId], references: [id], onDelete: Cascade)
+
+  modelId String
+  model   Profile @relation("ModelMilestones", fields: [modelId], references: [id], onDelete: Cascade)
+
+  totalSpent Float @default(0) // Total amount spent by this voter for this model
+
+  lastMilestoneReached Float? // Last milestone amount reached (50, 100, 200, etc.)
+  lastMilestoneReachedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([voterId, modelId])
+  @@index([voterId])
+  @@index([modelId])
+  @@index([voterId, modelId])
+  @@map("voter_model_milestone")
 }

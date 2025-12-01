@@ -249,8 +249,8 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
 
   // Calculate price based on vote count (pricing tiers)
   const getPriceForVoteCount = (count: number): number => {
-    // Standard pricing: $1 = 5 votes ($0.20 per vote)
-    return count * 0.2;
+    // Standard pricing: $1 = 1 vote
+    return count * 1.0;
   };
 
   const totalPrice = getPriceForVoteCount(voteCount);
@@ -271,6 +271,8 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
     },
   });
 
+  const modelName = votee.user.name || votee.user.username || votee.user.displayUsername || "Model";
+  
   const session = await stripe.checkout.sessions.create({
     metadata: {
       paymentId: payment.id,
@@ -279,16 +281,28 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
       voterId: voter.id,
       voteCount: voteCount.toString(),
       type: "MODEL_VOTE",
+      modelName: modelName,
     },
+    payment_intent_data: {
+      description: `Votes for ${modelName}`,
+      statement_descriptor: `Votes for ${modelName.substring(0, 22)}`, // Max 22 chars
+      statement_descriptor_suffix: modelName.substring(0, 20), // Max 20 chars - appears on statement
+      metadata: {
+        modelName: modelName,
+        voteeId: votee.id,
+      },
+    },
+    payment_method_types: ["card"],
+    submit_type: "pay",
     line_items: [
       {
         price_data: {
           currency: "usd",
           unit_amount: unitPrice,
           product_data: {
-            name: "Vote for Your Favorite Model",
+            name: `Votes for ${modelName}`,
             ...(votee.coverImage?.url ? { images: [votee.coverImage?.url] } : null),
-            description: `${voteCount} votes for ${votee.user.name}`,
+            description: `${voteCount} votes for ${modelName}`,
           },
         },
         quantity: voteCount,
@@ -305,7 +319,7 @@ export const payVote: AppRouteHandler<PayVote> = async (c) => {
         key: "comment",
         label: {
           type: "custom",
-          custom: `Message for ${votee.user.name} (Optional)`,
+          custom: `Message for ${modelName} (Optional)`,
         },
         type: "text",
         optional: true,

@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { PaymentMetadataSchema } from "@/db/schema/payments.schema";
 import env from "@/env";
 import { Icon, Notification_Type } from "@/generated/prisma";
+import { checkAndGrantMilestoneSpins } from "@/lib/milestone-spin";
 import { updateProfileStatsOnVote } from "@/lib/profile-stats";
 import { stripe } from "@/lib/stripe";
 
@@ -130,6 +131,39 @@ async function sessionCompleted(event: Stripe.Event) {
   // Update ProfileStats for the votee (outside transaction to avoid conflicts)
   // Use totalVoteCount (multiplied) for accurate stats
   await updateProfileStatsOnVote(metadata.voteeId, "PAID", totalVoteCount);
+
+  // Check and grant milestone spins for the voter-model pair
+  // Get payment amount from the completed payment
+  const completedPayment = await db.payment.findUnique({
+    where: { id: metadata.paymentId },
+    select: { amount: true },
+  });
+
+  if (completedPayment) {
+    const milestoneResult = await checkAndGrantMilestoneSpins(
+      metadata.voterId,
+      metadata.voteeId,
+      completedPayment.amount,
+    );
+
+    // Notify the voter if they reached a milestone
+    if (milestoneResult.granted && milestoneResult.milestoneReached) {
+      try {
+        await db.notification.create({
+          data: {
+            profileId: metadata.voterId,
+            title: "Milestone Reached! 🎉",
+            message: `You've spent $${milestoneResult.milestoneReached} on this model! You've earned a free spin!`,
+            type: Notification_Type.SYSTEM,
+            icon: Icon.SUCCESS,
+            action: "/spin-wheel",
+          },
+        });
+      } catch (error) {
+        console.error("Failed to create milestone notification:", error);
+      }
+    }
+  }
 
   // Notify the votee that they received paid votes
   try {
